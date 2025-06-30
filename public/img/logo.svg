@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="128" height="128">
+  <style>
+    .ts-blue { fill: #3178c6; }
+    .border { fill: none; stroke: #ffffff; stroke-width: 0; }
+    .brace {
+      fill: #ffffff;
+      font-size: 24px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .ts-text {
+      fill: #ffffff;
+      font-size: 24px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .num2 {
+      fill: #ffffff;
+      font-size: 12px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+  </style>
+
+  <!-- 전체 원형 배경 TS 블루 -->
+  <circle cx="50" cy="50" r="48" class="ts-blue"/>
+
+  <!-- 원형 보더 흰색 (선택) -->
+  <circle cx="50" cy="50" r="48" class="border"/>
+
+  <!-- 텍스트 -->
+  <text x="20" y="58" class="brace">{</text>
+
+  <text x="50" y="60" class="ts-text">.TS</text>
+  <text x="82" y="58" class="brace">}</text>
+</svg>
