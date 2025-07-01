@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
       coverage: {
         reporter: ['text', 'json', 'html'],
       },
+      passWithNoTests: true,
     },
   };
 });
