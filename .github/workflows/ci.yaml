@@ -12,19 +12,23 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
-        node-version: [22.x]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
-
+        node-version: [22.x]
+        pnpm-version: [10.x]
     steps:
       - uses: actions/checkout@v4
+      - name: Use pnpm ${{ matrix.pnpm-version }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ matrix.pnpm-version }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+      - run: pnpm install
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
