@@ -5,12 +5,12 @@ import { KyStrategy } from './ky-strategy';
 import { SuperagentStrategy } from './superagent-strategy';
 
 export class StrategyFactory {
-  private static strategies: Map<StrategyType, () => BaseCodeGenerationStrategy> = new Map([
+  private static strategies = new Map<StrategyType, () => BaseCodeGenerationStrategy>([
     ['fetch', () => new FetchStrategy()],
     ['axios', () => new AxiosStrategy()],
     ['ky', () => new KyStrategy()],
     ['superagent', () => new SuperagentStrategy()],
-  ]);
+  ] as [StrategyType, () => BaseCodeGenerationStrategy][]);
 
   static createStrategy(type: StrategyType): BaseCodeGenerationStrategy {
     const strategyFactory = this.strategies.get(type);
