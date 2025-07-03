@@ -27,7 +27,8 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "test": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "prepare": "husky"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.0",
@@ -76,7 +77,9 @@
     "globals": "^16.2.0",
     "gulp": "^4.0.2",
     "gulp-zip": "^6.0.0",
+    "husky": "^9.1.7",
     "jsdom": "^26.1.0",
+    "lint-staged": "^16.1.2",
     "postcss": "^8.4.38",
     "prettier": "^3.3.2",
     "prettier-plugin-tailwindcss": "^0.6.11",
