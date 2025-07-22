@@ -36,7 +36,7 @@ export default defineManifest({
       matches: [],
     },
   ],
-  permissions: ['storage', 'activeTab', 'tabs'],
+  permissions: ['activeTab'],
   optional_permissions: ['clipboardWrite'],
   host_permissions: ['<all_urls>'],
 });
