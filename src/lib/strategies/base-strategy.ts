@@ -1,5 +1,5 @@
 import { CaseConverter } from '@/lib/case-converter';
-import type { ApiEndpoint, Parameter } from '@/types/api';
+import type { ApiEndpoint } from '@/types/api';
 import type { CodeGenerationOptions, SwaggerApi } from '@/types/swagger';
 
 export type StrategyType = 'fetch' | 'axios' | 'ky' | 'superagent';
@@ -78,80 +78,26 @@ export abstract class BaseCodeGenerationStrategy {
     console.log('Code generation with options:', this.options);
     console.log('Converted endpoints:', apiEndpoints.length);
 
-    const dataModels = new Set<string>(); // 순수 데이터 모델 추적
     const dataModelInterfaces: string[] = [];
     const requestResponseInterfaces: string[] = [];
     const implementations: string[] = [];
-    const requiredModels = new Set<string>(); // 요청에서 사용되는 모델 추적
-
-    // 0단계: 기본 데이터 모델을 항상 먼저 생성
-    const basicModels = ['User', 'Pet', 'Order', 'Category', 'Tag'];
-    basicModels.forEach((modelName) => {
-      const modelInterface = this.generateBasicModel(modelName);
-      if (modelInterface) {
-        dataModelInterfaces.push(modelInterface);
-        dataModels.add(modelName);
-      } else {
-        // 스웨거 문서에서 가져올 수 없는 경우 기본 모델 생성
-        const fallbackModel = this.generateFallbackModel(modelName);
-        if (fallbackModel) {
-          dataModelInterfaces.push(fallbackModel);
-          dataModels.add(modelName);
-        }
-      }
-    });
-
-    // 1단계: 요청에서 사용되는 모델 감지
-    apiEndpoints.forEach((endpoint) => {
-      const requestInterface = this.generateRequestInterface(endpoint);
-
-      // body: User, body: Pet 등에서 모델 이름 추출
-      const bodyModelMatch = requestInterface.match(/body: (User|Pet|Order|Category|Tag)/);
-      if (bodyModelMatch) {
-        requiredModels.add(bodyModelMatch[1]);
-      }
-    });
-
-    // 2단계: 순수 데이터 모델 먼저 생성 (이미 생성된 모델은 건너뛰기)
-    apiEndpoints.forEach((endpoint) => {
-      const responseInterface = this.generateResponseInterface(endpoint);
-
-      // 순수 데이터 모델인지 확인 (User, Pet, Order 등)
-      const dataModelMatch = responseInterface.match(
-        /export interface (User|Pet|Order|Category|Tag) \{/,
-      );
-      if (dataModelMatch) {
-        const modelName = dataModelMatch[1];
-        if (!dataModels.has(modelName)) {
-          dataModelInterfaces.push(responseInterface);
-          dataModels.add(modelName);
-        }
-      }
-    });
 
     // 3단계: 요청/응답 인터페이스 생성
     const definedInterfaces = new Set<string>();
     apiEndpoints.forEach((endpoint) => {
       const requestInterface = this.generateRequestInterface(endpoint);
       const responseInterface = this.generateResponseInterface(endpoint);
+      const requestName = requestInterface.match(/export interface (\w+)/)?.[1];
+      const responseName = responseInterface.match(/export interface (\w+)/)?.[1];
 
-      // 순수 데이터 모델이 아닌 경우만 요청/응답 인터페이스 생성
-      const isDataModel = requestInterface.match(
-        /export interface (User|Pet|Order|Category|Tag) \{/,
-      );
-      if (!isDataModel) {
-        const requestName = requestInterface.match(/export interface (\w+)/)?.[1];
-        const responseName = responseInterface.match(/export interface (\w+)/)?.[1];
+      if (requestName && !definedInterfaces.has(requestName)) {
+        requestResponseInterfaces.push(requestInterface);
+        definedInterfaces.add(requestName);
+      }
 
-        if (requestName && !definedInterfaces.has(requestName)) {
-          requestResponseInterfaces.push(requestInterface);
-          definedInterfaces.add(requestName);
-        }
-
-        if (responseName && !definedInterfaces.has(responseName)) {
-          requestResponseInterfaces.push(responseInterface);
-          definedInterfaces.add(responseName);
-        }
+      if (responseName && !definedInterfaces.has(responseName)) {
+        requestResponseInterfaces.push(responseInterface);
+        definedInterfaces.add(responseName);
       }
     });
 
@@ -568,45 +514,116 @@ const API_BASE_URL = (() => {
     return `export interface ${modelName} {\n${propStrings.join('\n')}\n}`;
   }
 
-  private generateFallbackModel(modelName: string): string | null {
-    // Generate basic fallback models
-    const fallbackModels: Record<string, string> = {
-      User: `export interface User {
-  id: number;
-  username: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  password?: string;
-  phone?: string;
-  userStatus?: number;
-}`,
-      Pet: `export interface Pet {
-  id?: number;
-  category?: Category;
-  name: string;
-  photoUrls: string[];
-  tags?: Tag[];
-  status?: 'available' | 'pending' | 'sold';
-}`,
-      Order: `export interface Order {
-  id?: number;
-  petId: number;
-  quantity: number;
-  shipDate?: string;
-  status?: 'placed' | 'approved' | 'delivered';
-  complete?: boolean;
-}`,
-      Category: `export interface Category {
-  id?: number;
-  name: string;
-}`,
-      Tag: `export interface Tag {
-  id?: number;
-  name: string;
-}`,
-    };
+  static parseSwaggerModelsFromHtml(html: string): Record<string, any> {
+    const document = window.document;
+    const modelsSection = document.querySelector('.models');
+    if (!modelsSection) return {};
+    const models: Record<string, any> = {};
+    const modelContainers = modelsSection.querySelectorAll('.model-container');
+    modelContainers.forEach((container) => {
+      const modelName = container.getAttribute('data-name');
+      if (!modelName) return;
+      // Example Value(JSON) 기반 파싱 우선 적용
+      let exampleCode =
+        container.querySelector('.body-param__example code.language-json') ||
+        container.querySelector('code.language-json') ||
+        container.querySelector('.body-param__example pre code') ||
+        container.querySelector('pre code') ||
+        container.querySelector('[data-name="examplePanel"] code') ||
+        container.querySelector('.microlight code');
+      if (exampleCode) {
+        try {
+          const json = JSON.parse(exampleCode.textContent || '{}');
+          models[modelName] = BaseCodeGenerationStrategy.extractModelSchemaFromExample(json);
+          return;
+        } catch {}
+      }
+      // 테이블 기반 파싱 (fallback)
+      const schema: any = { type: 'object', properties: {}, required: [] };
+      const tableRows = container.querySelectorAll('tr.property-row');
+      tableRows.forEach((row) => {
+        let nameCell = row.querySelector('td:first-child');
+        if (!nameCell) return;
+        let name =
+          nameCell.childNodes[0]?.textContent?.trim() || nameCell.textContent?.trim() || '';
+        name = name.replace(/\*+$/, '').trim();
+        if (!name) return;
+        const isRequired = row.classList.contains('required');
+        if (isRequired) schema.required.push(name);
+        let typeCell = row.querySelector('td:nth-child(2)');
+        let type: any = { type: 'string' };
+        if (typeCell) {
+          const modelTitle = typeCell.querySelector('.model-title__text');
+          if (modelTitle) {
+            type = { $ref: `#/definitions/${modelTitle.textContent?.trim()}` };
+          } else {
+            const typeText = typeCell.textContent?.trim().toLowerCase() || '';
+            if (typeText.includes('array')) {
+              // 배열 타입
+              const arrayModel = typeCell.querySelector('.model-title__text');
+              if (arrayModel) {
+                type = {
+                  type: 'array',
+                  items: { $ref: `#/definitions/${arrayModel.textContent?.trim()}` },
+                };
+              } else {
+                type = { type: 'array', items: { type: 'string' } };
+              }
+            } else if (typeText.includes('integer') || typeText.includes('int')) {
+              type = { type: 'integer' };
+            } else if (typeText.includes('number')) {
+              type = { type: 'number' };
+            } else if (typeText.includes('boolean')) {
+              type = { type: 'boolean' };
+            } else if (typeText.includes('object')) {
+              type = { type: 'object' };
+            } else if (typeText.includes('string')) {
+              type = { type: 'string' };
+            }
+          }
+        }
+        schema.properties[name] = type;
+      });
+      models[modelName] = schema;
+    });
+    return models;
+  }
 
-    return fallbackModels[modelName] || null;
+  /**
+   * Example JSON 기반 스키마 추출 (간단화)
+   */
+  private static extractModelSchemaFromExample(json: any): any {
+    if (Array.isArray(json)) {
+      return {
+        type: 'array',
+        items: BaseCodeGenerationStrategy.extractModelSchemaFromExample(json[0]),
+      };
+    } else if (typeof json === 'object' && json !== null) {
+      const properties: Record<string, any> = {};
+      const required: string[] = [];
+      for (const key of Object.keys(json)) {
+        const value = json[key];
+        if (typeof value === 'string') {
+          properties[key] = { type: 'string' };
+        } else if (typeof value === 'number') {
+          properties[key] = { type: 'number' };
+        } else if (typeof value === 'boolean') {
+          properties[key] = { type: 'boolean' };
+        } else if (Array.isArray(value)) {
+          properties[key] = {
+            type: 'array',
+            items: BaseCodeGenerationStrategy.extractModelSchemaFromExample(value[0]),
+          };
+        } else if (typeof value === 'object' && value !== null) {
+          properties[key] = { $ref: `#/definitions/${key.charAt(0).toUpperCase() + key.slice(1)}` };
+        } else {
+          properties[key] = { type: 'string' };
+        }
+        required.push(key);
+      }
+      return { type: 'object', properties, required };
+    } else {
+      return { type: typeof json };
+    }
   }
 }
