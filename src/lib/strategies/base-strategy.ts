@@ -1,6 +1,5 @@
 import { CaseConverter } from '@/lib/case-converter';
-import type { ApiEndpoint } from '@/types/api';
-import type { CodeGenerationOptions, SwaggerApi } from '@/types/swagger';
+import type { CodeGenerationOptions, SwaggerApi, SwaggerApiRequest } from '@/types/swagger';
 
 export type StrategyType = 'fetch' | 'axios' | 'ky' | 'superagent';
 
@@ -27,11 +26,10 @@ export abstract class BaseCodeGenerationStrategy {
     this.options = { ...this.options, ...options };
   }
 
-  /**
-   * SwaggerApi를 ApiEndpoint로 변환
-   */
-  protected convertSwaggerApiToApiEndpoint(swaggerApi: SwaggerApi): ApiEndpoint {
+  protected convertSwaggerApiToApiEndpoint(swaggerApi: SwaggerApi): SwaggerApi {
+    console.log('swaggerApi', swaggerApi);
     return {
+      id: swaggerApi.id,
       path: swaggerApi.path,
       method: swaggerApi.method,
       summary: swaggerApi.summary,
@@ -51,8 +49,9 @@ export abstract class BaseCodeGenerationStrategy {
         minimum: param.minimum,
         maximum: param.maximum,
       })),
-      responses: swaggerApi.responses,
+      response: swaggerApi.response,
       selected: swaggerApi.selected,
+      request: swaggerApi.request,
     };
   }
 
@@ -63,7 +62,7 @@ export abstract class BaseCodeGenerationStrategy {
   /**
    * Strategy-specific REST call implementation
    */
-  public abstract generateImplementation(endpoint: ApiEndpoint): string;
+  public abstract generateImplementation(endpoint: SwaggerApi): string;
 
   /* PUBLIC – called by factory */
   generateCode(endpoints: SwaggerApi[], options?: Partial<CodeGenerationOptions>) {
@@ -72,17 +71,14 @@ export abstract class BaseCodeGenerationStrategy {
       this.setOptions(options);
     }
 
-    // SwaggerApi를 ApiEndpoint로 변환
     const apiEndpoints = endpoints.map((api) => this.convertSwaggerApiToApiEndpoint(api));
 
     console.log('Code generation with options:', this.options);
     console.log('Converted endpoints:', apiEndpoints.length);
 
-    const dataModelInterfaces: string[] = [];
     const requestResponseInterfaces: string[] = [];
     const implementations: string[] = [];
 
-    // 3단계: 요청/응답 인터페이스 생성
     const definedInterfaces = new Set<string>();
     apiEndpoints.forEach((endpoint) => {
       const requestInterface = this.generateRequestInterface(endpoint);
@@ -112,8 +108,6 @@ export abstract class BaseCodeGenerationStrategy {
       '\n\n' +
       this.generateConfigSection() +
       '\n\n' +
-      dataModelInterfaces.join('\n\n') +
-      '\n\n' +
       requestResponseInterfaces.join('\n\n') +
       '\n\n' +
       implementations.join('\n\n')
@@ -128,6 +122,7 @@ export abstract class BaseCodeGenerationStrategy {
 // - For Create React App: process.env.REACT_APP_API_BASE_URL
 // - For Node.js: process.env.API_BASE_URL
 // - Or use a config object: config.apiBaseUrl
+
 const API_BASE_URL = (() => {
   if (typeof process !== 'undefined' && process.env) {
     return process.env.NEXT_PUBLIC_API_BASE_URL || 
@@ -149,7 +144,7 @@ const API_BASE_URL = (() => {
 
   /* ===== Shared helpers ===== */
 
-  public generateRequestInterface(endpoint: ApiEndpoint) {
+  public generateRequestInterface(endpoint: SwaggerApi) {
     const name = this.capitalize(
       this.generateFunctionName(endpoint.method, endpoint.path, endpoint.operationId),
     );
@@ -157,95 +152,75 @@ const API_BASE_URL = (() => {
     return `export interface ${name}Request {\n${body}\n}`;
   }
 
-  public generateRequestInterfaceBody(endpoint: ApiEndpoint) {
+  /**
+   * request.path / request.query / request.headers / request.body / request.formData 사용
+   */
+  public generateRequestInterfaceBody(endpoint: SwaggerApi) {
     const parts: string[] = [];
+    const req: SwaggerApiRequest = endpoint.request || {};
+
+    // Header parameters
+    if (req.headers) {
+      const hp = Object.entries(req.headers)
+        .map(([rawName, schema]) => {
+          const paramName = CaseConverter.convertCase(rawName, this.options.propertyNameCase);
+          const type = this.generateTypeFromSchema(schema);
+          return `    ${paramName}${''}: ${type};`;
+        })
+        .join('\n');
+      parts.push(`  headers?: {\n${hp}\n  };`);
+    } else {
+      parts.push(`  headers?: Record<string, string>;`);
+    }
 
     // Path parameters
-    const pathParams = endpoint.parameters?.filter((p) => p.in === 'path') || [];
-    if (pathParams.length > 0) {
-      pathParams.forEach((param) => {
-        const type = this.mapSwaggerTypeToTS(param);
-        const paramName = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
+    if (req.path) {
+      for (const [rawName, schema] of Object.entries(req.path)) {
+        const paramName = CaseConverter.convertCase(rawName, this.options.propertyNameCase);
+        const type = this.generateTypeFromSchema(schema);
         parts.push(`  ${paramName}: ${type};`);
-      });
+      }
     }
 
     // Query parameters
-    const queryParams = endpoint.parameters?.filter((p) => p.in === 'query') || [];
-    if (queryParams.length > 0) {
-      const queryProps = queryParams
-        .map((param) => {
-          const type = this.mapSwaggerTypeToTS(param);
-          const paramName = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
-          return `    ${paramName}${param.required ? '' : '?'}: ${type};`;
+    if (req.query) {
+      const qp = Object.entries(req.query)
+        .map(([rawName, schema]) => {
+          const paramName = CaseConverter.convertCase(rawName, this.options.propertyNameCase);
+          const type = this.generateTypeFromSchema(schema);
+          return `    ${paramName}${''}: ${type};`;
         })
         .join('\n');
-      parts.push(`  query?: {\n${queryProps}\n  };`);
-    }
-
-    // Header parameters
-    const headerParams = endpoint.parameters?.filter((p) => p.in === 'header') || [];
-    if (headerParams.length > 0) {
-      const headerProps = headerParams
-        .map((param) => {
-          const type = this.mapSwaggerTypeToTS(param);
-          const paramName = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
-          return `    ${paramName}${param.required ? '' : '?'}: ${type};`;
-        })
-        .join('\n');
-      parts.push(`  headers?: {\n${headerProps}\n  };`);
+      parts.push(`  query?: {\n${qp}\n  };`);
     }
 
     // Body parameter
-    const bodyParam = endpoint.parameters?.find((p) => p.in === 'body');
-    if (bodyParam?.schema) {
-      // Try to extract DTO name from body schema
-      let dtoName = this.extractDtoNameFromRef(bodyParam.schema.$ref);
-
-      // If no $ref, try to match with known DTOs by schema structure
-      if (!dtoName) {
-        console.log(
-          `[DEBUG] Trying to match schema for ${endpoint.operationId}:`,
-          bodyParam.schema,
-        );
-        dtoName = this.matchSchemaToDto(bodyParam.schema);
-        console.log(`[DEBUG] Matched DTO: ${dtoName}`);
-      }
-
+    if (req.body) {
+      const dtoName = this.extractDtoNameFromRef(req.body.$ref);
       if (dtoName) {
         parts.push(`  body: ${dtoName};`);
       } else {
-        // Generate inline type from schema
-        const bodyType = this.generateTypeFromSchema(bodyParam.schema);
-        parts.push(`  body: ${bodyType};`);
+        const inline = this.generateTypeFromSchema(req.body, 1);
+        parts.push(`  body: ${inline};`);
       }
     }
 
     // FormData parameters
-    const formDataParams = endpoint.parameters?.filter((p) => p.in === 'formData') || [];
-    if (formDataParams.length > 0) {
-      const formDataProps = formDataParams
-        .map((param) => {
-          const type = this.mapSwaggerTypeToTS(param);
-          const paramName = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
-          return `    ${paramName}${param.required ? '' : '?'}: ${type};`;
+    if (req.formData) {
+      const fm = Object.entries(req.formData)
+        .map(([rawName, schema]) => {
+          const paramName = CaseConverter.convertCase(rawName, this.options.propertyNameCase);
+          const type = this.generateTypeFromSchema(schema);
+          return `    ${paramName}${''}: ${type};`;
         })
         .join('\n');
-      parts.push(`  formData?: {\n${formDataProps}\n  };`);
-    }
-
-    // Add headers and formData as optional properties for all requests
-    if (headerParams.length === 0) {
-      parts.push(`  headers?: Record<string, string>;`);
-    }
-    if (formDataParams.length === 0 && bodyParam?.schema) {
-      parts.push(`  formData?: Record<string, any>;`);
+      parts.push(`  formData?: {\n${fm}\n  };`);
     }
 
     return parts.join('\n');
   }
 
-  public generateResponseInterface(endpoint: ApiEndpoint) {
+  public generateResponseInterface(endpoint: SwaggerApi) {
     const name = this.capitalize(
       this.generateFunctionName(endpoint.method, endpoint.path, endpoint.operationId),
     );
@@ -253,16 +228,17 @@ const API_BASE_URL = (() => {
     return `export interface ${name}Response {\n${body}\n}`;
   }
 
-  public generateResponseInterfaceBody(endpoint: ApiEndpoint) {
+  public generateResponseInterfaceBody(endpoint: SwaggerApi) {
     const parts: string[] = [];
 
     // Find successful response (200, 201, etc.)
-    const successResponse = Object.entries(endpoint.responses).find(([status]) =>
+    const successResponse = Object.entries(endpoint.response).find(([status]) =>
       status.startsWith('2'),
     );
 
     if (successResponse) {
       const [, response] = successResponse;
+
       if (response.response) {
         // Use resolved response schema
         const responseType = this.generateTypeFromSchema(response.response, 2);
@@ -283,33 +259,24 @@ const API_BASE_URL = (() => {
     // Add common response fields
     parts.push(`  status: number;`);
     parts.push(`  statusText: string;`);
-    parts.push(`  headers: Record<string, string>;`);
 
     return parts.join('\n');
   }
 
   public generateFunctionName(method: string, path: string, operationId?: string) {
     if (operationId) {
-      const result = CaseConverter.convertCase(operationId, this.options.functionNameCase);
-      return result;
+      return CaseConverter.convertCase(operationId, this.options.functionNameCase);
     }
-
-    // Generate from method + path
     const pathParts = path
       .split('/')
       .filter(Boolean)
-      .map((part) => part.replace(/[{}]/g, ''));
-
-    // Create a descriptive function name from method and path
+      .map((p) => p.replace(/[{}]/g, ''));
     const words = [method.toLowerCase(), ...pathParts];
-    const functionName = words.join(' ');
-    const result = CaseConverter.convertCase(functionName, this.options.functionNameCase);
-
-    return result;
+    const raw = words.join(' ');
+    return CaseConverter.convertCase(raw, this.options.functionNameCase);
   }
 
   public capitalize(str: string) {
-    // 인터페이스명은 항상 파스칼 케이스로 생성
     return CaseConverter.convertCase(str, 'PascalCase');
   }
 
@@ -321,42 +288,36 @@ const API_BASE_URL = (() => {
       .join('\n');
   }
 
-  protected groupParameters(endpoint: ApiEndpoint) {
+  protected groupParameters(endpoint: SwaggerApi) {
     const pathParams = endpoint.parameters?.filter((p) => p.in === 'path') || [];
     const queryParams = endpoint.parameters?.filter((p) => p.in === 'query') || [];
     const headerParams = endpoint.parameters?.filter((p) => p.in === 'header') || [];
     const bodyParams = endpoint.parameters?.filter((p) => p.in === 'body') || [];
-    const formDataParams = endpoint.parameters?.filter((p) => p.in === 'formData') || [];
-
-    return { pathParams, queryParams, headerParams, bodyParams, formData: formDataParams };
+    const formData = endpoint.parameters?.filter((p) => p.in === 'formData') || [];
+    return { pathParams, queryParams, headerParams, bodyParams, formData };
   }
 
   protected buildUrlWithPathParams(path: string, pathParams: any[]): string {
     let url = path;
     pathParams.forEach((param) => {
-      const paramName = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
-      url = url.replace(`{${param.name}}`, `\${${paramName}}`);
+      const name = CaseConverter.convertCase(param.name, this.options.propertyNameCase);
+      url = url.replace(`{${param.name}}`, `\${${name}}`);
     });
     return url;
   }
 
-  private mapSwaggerTypeToTS(p: Parameter): string {
+  private mapSwaggerTypeToTS(p: any): string {
     if (p.schema) {
       return this.generateTypeFromSchema(p.schema);
     }
-
     if (p.type === 'array' && p.items) {
       const itemType = this.mapSwaggerTypeToTS(p.items);
       return `${itemType}[]`;
     }
-
     switch (p.type) {
       case 'string':
         if (p.enum) {
-          return p.enum.map((v) => `'${v}'`).join(' | ');
-        }
-        if (p.format === 'date-time') {
-          return 'string'; // or 'Date' if you prefer
+          return p.enum.map((v: any) => `'${v}'`).join(' | ');
         }
         return 'string';
       case 'integer':
@@ -373,257 +334,65 @@ const API_BASE_URL = (() => {
 
   protected generateTypeFromSchema(schema: any, indentLevel: number = 0): string {
     if (!schema) return 'any';
-
     if (schema.$ref) {
-      const refName = schema.$ref.split('/').pop();
-      return refName || 'any';
+      return schema.$ref.split('/').pop() || 'any';
     }
-
     if (schema.type === 'array') {
       const itemType = this.generateTypeFromSchema(schema.items, indentLevel);
       return `${itemType}[]`;
     }
-
     if (schema.type === 'object' || schema.properties) {
-      const properties = schema.properties || {};
+      const props = schema.properties || {};
       const required = schema.required || [];
       const indent = '  '.repeat(indentLevel);
-
-      const propStrings = Object.entries(properties).map(([key, propSchema]) => {
+      const lines = Object.entries(props).map(([key, propSchema]) => {
         const propName = CaseConverter.convertCase(key, this.options.propertyNameCase);
         const propType = this.generateTypeFromSchema(propSchema, indentLevel + 1);
-        const isRequired = required.includes(key);
-
-        return `${indent}  ${propName}${isRequired ? '' : '?'}: ${propType};`;
+        const isReq = required.includes(key);
+        return `${indent}  ${propName}${isReq ? '' : '?'}: ${propType};`;
       });
-
-      return `{\n${propStrings.join('\n')}\n${indent}}`;
+      return `{\n${lines.join('\n')}\n${indent}}`;
     }
-
     if (schema.enum) {
       return schema.enum.map((v: any) => `'${v}'`).join(' | ');
     }
-
     switch (schema.type) {
       case 'string':
-        if (schema.format === 'date-time') {
-          return 'string'; // or 'Date'
-        }
         return 'string';
       case 'integer':
       case 'number':
         return 'number';
       case 'boolean':
         return 'boolean';
+      case 'file':
+        return 'File';
       default:
         return 'any';
     }
   }
 
+  protected extractDtoNameFromRef(ref?: string): string | null {
+    if (!ref) return null;
+    const m = ref.match(/#\/definitions\/(.+)/);
+    return m ? m[1] : null;
+  }
+
   protected extractDtoNameFromResponse(response?: any): string | null {
     if (!response) return null;
-
-    if (response.schema?.$ref) {
-      return this.extractDtoNameFromRef(response.schema.$ref);
-    }
-
-    if (response.response?.$ref) {
-      return this.extractDtoNameFromRef(response.response.$ref);
-    }
-
+    if (response.schema?.$ref) return this.extractDtoNameFromRef(response.schema.$ref);
+    if (response.response?.$ref) return this.extractDtoNameFromRef(response.response.$ref);
     return null;
   }
 
-  protected extractDtoNameFromRef(ref: string): string | null {
-    if (!ref) return null;
-    const match = ref.match(/#\/definitions\/(.+)/);
-    return match ? match[1] : null;
-  }
-
-  protected getResponseTypeName(endpoint: ApiEndpoint): string {
-    const successResponse = Object.entries(endpoint.responses).find(([status]) =>
-      status.startsWith('2'),
-    );
-
-    if (successResponse) {
-      const [, response] = successResponse;
-      const dtoName = this.extractDtoNameFromResponse(response);
-      if (dtoName) {
-        return dtoName;
-      }
+  protected getResponseTypeName(endpoint: SwaggerApi): string {
+    const success = Object.entries(endpoint.response).find(([s]) => s.startsWith('2'));
+    if (success) {
+      const [, resp] = success;
+      const dto = this.extractDtoNameFromResponse(resp);
+      if (dto) return dto;
     }
-
-    // Fallback: generate from operation
     return this.capitalize(
       this.generateFunctionName(endpoint.method, endpoint.path, endpoint.operationId),
     );
-  }
-
-  protected matchSchemaToDto(schema: any): string | null {
-    // This is a simplified matching logic
-    // In a real implementation, you might want to compare schema structures
-    const swaggerDoc = this.getSwaggerDocument();
-    if (!swaggerDoc?.definitions) return null;
-
-    for (const [dtoName, dtoSchema] of Object.entries(swaggerDoc.definitions)) {
-      if (this.isSchemaMatch(schema, dtoSchema)) {
-        return dtoName;
-      }
-    }
-
-    return null;
-  }
-
-  protected getSwaggerDocument(): any {
-    // This would need to be implemented based on how you access the swagger document
-    // For now, return null
-    return null;
-  }
-
-  private isSchemaMatch(schema1: any, schema2: any): boolean {
-    // Simplified schema matching
-    if (schema1.type !== schema2.type) return false;
-    if (schema1.type === 'object') {
-      const props1 = Object.keys(schema1.properties || {});
-      const props2 = Object.keys(schema2.properties || {});
-      return props1.length === props2.length && props1.every((p) => props2.includes(p));
-    }
-    return true;
-  }
-
-  protected generateBasicModel(modelName: string): string | null {
-    const swaggerDoc = this.getSwaggerDocument();
-    if (!swaggerDoc?.definitions?.[modelName]) return null;
-
-    const schema = swaggerDoc.definitions[modelName];
-    return this.generateInterfaceFromSchema(modelName, schema);
-  }
-
-  private generateInterfaceFromSchema(modelName: string, schema: any): string {
-    const properties = schema.properties || {};
-    const required = schema.required || [];
-    const indent = '  ';
-
-    const propStrings = Object.entries(properties).map(([key, propSchema]) => {
-      const propName = CaseConverter.convertCase(key, this.options.propertyNameCase);
-      const propType = this.generateTypeFromSchema(propSchema, 1);
-      const isRequired = required.includes(key);
-      return `${indent}${propName}${isRequired ? '' : '?'}: ${propType};`;
-    });
-
-    return `export interface ${modelName} {\n${propStrings.join('\n')}\n}`;
-  }
-
-  static parseSwaggerModelsFromHtml(html: string): Record<string, any> {
-    const document = window.document;
-    const modelsSection = document.querySelector('.models');
-    if (!modelsSection) return {};
-    const models: Record<string, any> = {};
-    const modelContainers = modelsSection.querySelectorAll('.model-container');
-    modelContainers.forEach((container) => {
-      const modelName = container.getAttribute('data-name');
-      if (!modelName) return;
-      // Example Value(JSON) 기반 파싱 우선 적용
-      let exampleCode =
-        container.querySelector('.body-param__example code.language-json') ||
-        container.querySelector('code.language-json') ||
-        container.querySelector('.body-param__example pre code') ||
-        container.querySelector('pre code') ||
-        container.querySelector('[data-name="examplePanel"] code') ||
-        container.querySelector('.microlight code');
-      if (exampleCode) {
-        try {
-          const json = JSON.parse(exampleCode.textContent || '{}');
-          models[modelName] = BaseCodeGenerationStrategy.extractModelSchemaFromExample(json);
-          return;
-        } catch {}
-      }
-      // 테이블 기반 파싱 (fallback)
-      const schema: any = { type: 'object', properties: {}, required: [] };
-      const tableRows = container.querySelectorAll('tr.property-row');
-      tableRows.forEach((row) => {
-        let nameCell = row.querySelector('td:first-child');
-        if (!nameCell) return;
-        let name =
-          nameCell.childNodes[0]?.textContent?.trim() || nameCell.textContent?.trim() || '';
-        name = name.replace(/\*+$/, '').trim();
-        if (!name) return;
-        const isRequired = row.classList.contains('required');
-        if (isRequired) schema.required.push(name);
-        let typeCell = row.querySelector('td:nth-child(2)');
-        let type: any = { type: 'string' };
-        if (typeCell) {
-          const modelTitle = typeCell.querySelector('.model-title__text');
-          if (modelTitle) {
-            type = { $ref: `#/definitions/${modelTitle.textContent?.trim()}` };
-          } else {
-            const typeText = typeCell.textContent?.trim().toLowerCase() || '';
-            if (typeText.includes('array')) {
-              // 배열 타입
-              const arrayModel = typeCell.querySelector('.model-title__text');
-              if (arrayModel) {
-                type = {
-                  type: 'array',
-                  items: { $ref: `#/definitions/${arrayModel.textContent?.trim()}` },
-                };
-              } else {
-                type = { type: 'array', items: { type: 'string' } };
-              }
-            } else if (typeText.includes('integer') || typeText.includes('int')) {
-              type = { type: 'integer' };
-            } else if (typeText.includes('number')) {
-              type = { type: 'number' };
-            } else if (typeText.includes('boolean')) {
-              type = { type: 'boolean' };
-            } else if (typeText.includes('object')) {
-              type = { type: 'object' };
-            } else if (typeText.includes('string')) {
-              type = { type: 'string' };
-            }
-          }
-        }
-        schema.properties[name] = type;
-      });
-      models[modelName] = schema;
-    });
-    return models;
-  }
-
-  /**
-   * Example JSON 기반 스키마 추출 (간단화)
-   */
-  private static extractModelSchemaFromExample(json: any): any {
-    if (Array.isArray(json)) {
-      return {
-        type: 'array',
-        items: BaseCodeGenerationStrategy.extractModelSchemaFromExample(json[0]),
-      };
-    } else if (typeof json === 'object' && json !== null) {
-      const properties: Record<string, any> = {};
-      const required: string[] = [];
-      for (const key of Object.keys(json)) {
-        const value = json[key];
-        if (typeof value === 'string') {
-          properties[key] = { type: 'string' };
-        } else if (typeof value === 'number') {
-          properties[key] = { type: 'number' };
-        } else if (typeof value === 'boolean') {
-          properties[key] = { type: 'boolean' };
-        } else if (Array.isArray(value)) {
-          properties[key] = {
-            type: 'array',
-            items: BaseCodeGenerationStrategy.extractModelSchemaFromExample(value[0]),
-          };
-        } else if (typeof value === 'object' && value !== null) {
-          properties[key] = { $ref: `#/definitions/${key.charAt(0).toUpperCase() + key.slice(1)}` };
-        } else {
-          properties[key] = { type: 'string' };
-        }
-        required.push(key);
-      }
-      return { type: 'object', properties, required };
-    } else {
-      return { type: typeof json };
-    }
   }
 }

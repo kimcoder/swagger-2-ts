@@ -1,9 +1,31 @@
 import { CaseType } from '@/lib/case-converter';
 
-export interface SwaggerPath {
-  [path: string]: {
-    [method: string]: SwaggerOperation;
+export interface SwaggerDocument {
+  swagger?: string;
+  openapi?: string;
+  info: {
+    title: string;
+    description?: string;
+    version: string;
   };
+  paths: {
+    [path: string]: {
+      [method: string]: SwaggerOperation;
+    };
+  };
+  components?: {
+    schemas: {
+      [key: string]: SwaggerSchema;
+    };
+  };
+  // For Swagger 2.0
+  definitions?: {
+    [key: string]: SwaggerSchema;
+  };
+  tags?: Array<{
+    name: string;
+    description: string;
+  }>;
 }
 
 export interface SwaggerOperation {
@@ -12,27 +34,23 @@ export interface SwaggerOperation {
   description?: string;
   operationId?: string;
   parameters?: SwaggerParameter[];
-  requestBody?: SwaggerRequestBody;
-  responses: {
-    [statusCode: string]: SwaggerResponse;
-  };
-}
-
-export interface SwaggerRequestBody {
-  required?: boolean;
-  content: {
-    [contentType: string]: {
-      schema: SwaggerSchema;
+  requestBody?: {
+    required?: boolean;
+    content: {
+      [contentType: string]: {
+        schema: SwaggerSchema;
+      };
     };
   };
-}
-
-export interface SwaggerResponse {
-  description: string;
-  schema?: SwaggerSchema;
-  content?: {
-    [contentType: string]: {
-      schema: SwaggerSchema;
+  responses: {
+    [statusCode: string]: {
+      description: string;
+      schema?: SwaggerSchema;
+      content?: {
+        [contentType: string]: {
+          schema: SwaggerSchema;
+        };
+      };
     };
   };
 }
@@ -51,31 +69,6 @@ export interface SwaggerSchema {
   $ref?: string;
 }
 
-export interface SwaggerDocument {
-  swagger?: string;
-  openapi?: string;
-  info: {
-    title: string;
-    description?: string;
-    version: string;
-  };
-  paths: SwaggerPath;
-  components?: {
-    schemas: {
-      [key: string]: SwaggerSchema;
-    };
-  };
-  // For Swagger 2.0
-  definitions?: {
-    [key: string]: SwaggerSchema;
-  };
-  tags?: Array<{
-    name: string;
-    description: string;
-  }>;
-}
-
-// ApiEndpoint와 호환되는 SwaggerApi 타입
 export interface SwaggerApi {
   id: string;
   path: string;
@@ -85,14 +78,35 @@ export interface SwaggerApi {
   operationId: string;
   tags: string[];
   parameters: SwaggerParameter[];
-  responses: Record<string, SwaggerResponse>;
+  request: SwaggerApiRequest;
+  response: Record<string, SwaggerApiResponse>;
   requestBody?: any;
   selected?: boolean;
 }
 
+export interface SwaggerApiRequest {
+  query?: Record<string, string>;
+  path?: Record<string, string>;
+  body?: any;
+  headers?: Record<string, string>;
+  formData?: Record<string, any>;
+  cookies?: Record<string, any>;
+}
+
+export interface SwaggerApiResponse {
+  description: string;
+  schema?: SwaggerSchema;
+  response: {
+    type?: string;
+    items: any;
+    required?: string[];
+    properties?: Record<string, any>;
+  };
+}
+
 export interface SwaggerParameter {
   name: string;
-  in: 'path' | 'query' | 'body' | 'formData' | 'header';
+  in: 'path' | 'query' | 'body' | 'formData' | 'header' | 'cookie';
   description?: string;
   required: boolean;
   type?: string;

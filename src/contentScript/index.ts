@@ -1,5 +1,5 @@
 import { GET_SWAGGER, GET_SWAGGER_FAILURE, GET_SWAGGER_SUCCESS } from '@/constants/messages';
-import { getAPIList } from '@/contentScript/swagger-parser';
+import { getAPIList } from '@/contentScript/swagger/swagger-parser';
 
 chrome.runtime.onMessage.addListener(({ message }) => {
   if (message === GET_SWAGGER) {
