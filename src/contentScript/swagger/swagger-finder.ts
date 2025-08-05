@@ -26,10 +26,12 @@ export function isValidSwaggerDoc(data: any): data is SwaggerDocument {
 export async function findSwaggerDocument(): Promise<SwaggerDocument | null> {
   // 1) link / anchor 태그
   const urlSelectors = [
-    'link[rel="swagger"]',
-    'link[href$=".json"]',
-    'a[href*="swagger.json"]',
-    'a[href*="/v2/api-docs"]',
+    '.info > .main > a',
+    '.swagger-ui .info a',
+    '.opblock-tag-section a[href*="swagger"]',
+    '.opblock-tag-section a[href*="api-docs"]',
+    'link[rel="swagger"], link[href*="swagger.json"]',
+    'link[href*="api-docs.json"]',
   ];
   for (const sel of urlSelectors) {
     const el = document.querySelector<HTMLLinkElement | HTMLAnchorElement>(sel);
