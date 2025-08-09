@@ -119,26 +119,9 @@ export abstract class BaseCodeGenerationStrategy {
 // You can customize this based on your environment:
 // - For Next.js: process.env.NEXT_PUBLIC_API_BASE_URL
 // - For Vite: import.meta.env.VITE_API_BASE_URL  
-// - For Create React App: process.env.REACT_APP_API_BASE_URL
-// - For Node.js: process.env.API_BASE_URL
 // - Or use a config object: config.apiBaseUrl
 
-const API_BASE_URL = (() => {
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL || 
-           process.env.REACT_APP_API_BASE_URL || 
-           process.env.VITE_API_BASE_URL || 
-           process.env.API_BASE_URL || '';
-  }
-  if (typeof window !== 'undefined' && (window as any).API_BASE_URL) {
-    return (window as any).API_BASE_URL;
-  }
-  // @ts-ignore - for Vite
-  if (typeof import !== 'undefined' && (import as any).meta?.env?.VITE_API_BASE_URL) {
-    return (import as any).meta.env.VITE_API_BASE_URL;
-  }
-  return '';
-})();
+const API_BASE_URL = ''; // your api base url
 `;
   }
 
@@ -228,37 +211,43 @@ const API_BASE_URL = (() => {
     return `export interface ${name}Response {\n${body}\n}`;
   }
 
-  public generateResponseInterfaceBody(endpoint: SwaggerApi) {
+  public generateResponseInterfaceBody(endpoint: SwaggerApi): string {
     const parts: string[] = [];
 
-    // Find successful response (200, 201, etc.)
-    const successResponse = Object.entries(endpoint.response).find(([status]) =>
+    // 1) 성공 응답 (2xx) 찾기
+    const successEntry = Object.entries(endpoint.response).find(([status]) =>
       status.startsWith('2'),
     );
 
-    if (successResponse) {
-      const [, response] = successResponse;
+    if (successEntry) {
+      const [, resp] = successEntry as [string, any];
+      // OpenAPI3 에서는 resp.response, Swagger2 에서는 resp.schema 에 담겨 있음
+      const schema = resp.response ?? resp.schema;
 
-      if (response.response) {
-        // Use resolved response schema
-        const responseType = this.generateTypeFromSchema(response.response, 2);
-        parts.push(`  data: ${responseType};`);
-      } else if (response.schema) {
-        // Use original schema
-        const responseType = this.generateTypeFromSchema(response.schema, 2);
-        parts.push(`  data: ${responseType};`);
+      // 2) object 스키마면 flatten
+      if (schema && (schema.type === 'object' || schema.properties)) {
+        const props = schema.properties || {};
+        const required = Array.isArray(schema.required) ? schema.required : [];
+        const indent = '  ';
+
+        for (const [rawName, propSchema] of Object.entries(props)) {
+          const name = CaseConverter.convertCase(rawName, this.options.propertyNameCase);
+          const tsType = this.generateTypeFromSchema(propSchema, 1);
+          const optionalMark = required.includes(rawName) ? '' : '?';
+          parts.push(`${indent}${name}${optionalMark}: ${tsType};`);
+        }
+      } else if (schema) {
+        // 3) object 가 아니면 data: T 형태
+        const typeStr = this.generateTypeFromSchema(schema, 2);
+        parts.push(`  data: ${typeStr};`);
       } else {
-        // No schema, use void
+        // 4) 스키마 자체가 없으면 void
         parts.push(`  data: void;`);
       }
     } else {
-      // No successful response found
+      // 5) 2xx 응답 자체가 없으면 void
       parts.push(`  data: void;`);
     }
-
-    // Add common response fields
-    parts.push(`  status: number;`);
-    parts.push(`  statusText: string;`);
 
     return parts.join('\n');
   }

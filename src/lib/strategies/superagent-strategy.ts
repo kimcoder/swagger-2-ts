@@ -19,7 +19,6 @@ import request from 'superagent';`;
       headerParams,
     } = this.groupParameters(endpoint);
 
-    // Generate function name with proper case conversion
     const functionName = this.generateFunctionName(
       endpoint.method,
       endpoint.path,
@@ -27,45 +26,56 @@ import request from 'superagent';`;
     );
     const interfaceName = this.capitalize(functionName);
 
-    let url = `let url = \`${endpoint.path}\`;`;
+    // 1) URL 조립
+    let urlLine = `let url = \`${endpoint.path}\`;`;
     pathParams.forEach((p) => {
       const paramName = CaseConverter.convertCase(p.name, this.options.propertyNameCase);
-      url = url.replace(`{${p.name}}`, `\${params.${paramName}}`);
+      urlLine = urlLine.replace(`{${p.name}}`, `\${params.${paramName}}`);
     });
 
     let impl = `export async function ${functionName}(params: ${interfaceName}Request): Promise<${interfaceName}Response> {\n`;
-    impl += this.indent(url) + '\n\n';
+    impl += this.indent(urlLine) + '\n\n';
 
-    impl += this.indent(`const req = request.${endpoint.method.toLowerCase()}(url);`) + '\n';
-
-    // query
+    // 2) Query 직렬화 (superagent.query 대신 수동 URL 포함)
     if (queryParams.length) {
-      impl += this.indent(`if (params.query) req.query(params.query);`) + '\n';
+      impl +=
+        this.indent(`if (params.query) {
+  const sp = new URLSearchParams();
+  Object.entries(params.query).forEach(([k, v]) => {
+    if (Array.isArray(v)) sp.append(k, v.join(','));
+    else if (v !== undefined) sp.append(k, String(v));
+  });
+  url += \`?\${sp.toString()}\`;
+}`) + '\n\n';
     }
 
-    // headers
+    // 3) 요청 빌드
+    impl += this.indent(`const req = request.${endpoint.method.toLowerCase()}(url);`) + '\n';
+
+    // 4) Headers
     if (headerParams.length) {
       impl += this.indent(`if (params.headers) req.set(params.headers);`) + '\n';
     }
 
-    // body
+    // 5) Body/FormData
     if (bodyParams.length) {
       impl += this.indent(`if (params.body) req.send(params.body);`) + '\n';
     } else if (formParams.length) {
       impl +=
         this.indent(`if (params.formData) {
-  Object.entries(params.formData).forEach(([k,v]) => {
+  Object.entries(params.formData).forEach(([k, v]) => {
     if (v !== undefined) {
       if (v instanceof File) req.attach(k, v);
-      else req.field(k, String(v as any));
+      else req.field(k, String(v));
     }
   });
 }`) + '\n';
     }
 
+    // 6) 호출 & flatten 반환
     impl +=
       this.indent(`const res = await req;
-return { data: res.body, status: res.status, statusText: res.statusText };`) + '\n}';
+return res.body;`) + '\n}';
 
     return impl;
   }
