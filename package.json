@@ -1,7 +1,7 @@
 {
   "name": "swagger-2-ts",
   "displayName": "swagger 2 ts",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "author": "kimcoder",
   "description": "Chrome extension that reads Swagger 2.0 and OpenAPI 3.x API documentation and generates TypeScript code.",
   "type": "module",
