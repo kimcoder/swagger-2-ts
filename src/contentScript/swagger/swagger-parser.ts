@@ -176,33 +176,54 @@ function getRequestModel(
 }
 
 /**
- * $ref, array, object, primitive 타입을 재귀적으로 치환합니다.
+ * $ref, 배열, 객체, primitive 타입을 재귀적으로 치환할 때
+ * 이미 처리 중인 $ref는 더 이상 풀지 않고 $ref 셋업만 남겨 순환을 끊습니다.
  */
-function resolveSchema(schema: any, definitions: Record<string, SwaggerSchema>): any {
+function resolveSchema(
+  schema: any,
+  definitions: Record<string, SwaggerSchema>,
+  seenRefs: Set<string> = new Set(),
+): any {
   if (!schema) return null;
 
-  // 1) $ref
+  // --- 1) $ref 처리 ---
   if (schema.$ref) {
+    // "#/definitions/Pet" → "Pet"
     const parts = schema.$ref.split('/');
     const refName = parts[parts.length - 1];
+    // 순환 참조가 시작된 경우: 더 풀지 않고 $ref만 남겨준다
+    if (seenRefs.has(refName)) {
+      return { $ref: `#/definitions/${refName}` };
+    }
+    // 이제 이 ref를 처리 중임을 표시
+    seenRefs.add(refName);
+
     const def = definitions[refName];
-    return def ? resolveSchema(def, definitions) : null;
+    if (!def) {
+      // 정의가 없으면 일단 그대로 $ref만 남겨두고 종료
+      seenRefs.delete(refName);
+      return { $ref: `#/definitions/${refName}` };
+    }
+    // 실제 정의로 내려가서 재귀
+    const resolved = resolveSchema(def, definitions, seenRefs);
+    // 이 ref는 더 이상 처리 중이 아님을 표시
+    seenRefs.delete(refName);
+    return resolved;
   }
 
-  // 2) 배열
+  // --- 2) 배열 타입 ---
   if (schema.type === 'array' && schema.items) {
     return {
       type: 'array',
-      items: resolveSchema(schema.items, definitions),
-      // collectionFormat 등 필요시 추가
+      items: resolveSchema(schema.items, definitions, seenRefs),
     };
   }
 
-  // 3) 객체
+  // --- 3) 객체 타입 (properties) ---
   if (schema.type === 'object' || schema.properties) {
     const props: Record<string, any> = {};
     for (const [key, val] of Object.entries(schema.properties || {})) {
-      props[key] = resolveSchema(val, definitions);
+      props[key] = resolveSchema(val, definitions, seenRefs);
     }
     return {
       type: 'object',
@@ -211,7 +232,7 @@ function resolveSchema(schema: any, definitions: Record<string, SwaggerSchema>):
     };
   }
 
-  // 4) primitive
+  // --- 4) primitive 타입 (string, integer, enum 등) ---
   const out: any = { type: schema.type };
   if (schema.format) out.format = schema.format;
   if (schema.enum) out.enum = schema.enum;
