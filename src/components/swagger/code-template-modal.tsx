@@ -234,6 +234,9 @@ ${responseInterface}`;
         <Tabs defaultValue="fetch" className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-shrink-0 border-b pb-4">
             <TabsList className="w-full">
+              <TabsTrigger value="interfaces" className="flex-1">
+                Interfaces
+              </TabsTrigger>
               <TabsTrigger value="fetch" className="flex-1">
                 Fetch
               </TabsTrigger>
@@ -245,9 +248,6 @@ ${responseInterface}`;
               </TabsTrigger>
               <TabsTrigger value="superagent" className="flex-1">
                 SuperAgent
-              </TabsTrigger>
-              <TabsTrigger value="interfaces" className="flex-1">
-                Interfaces
               </TabsTrigger>
               <TabsTrigger value="custom" className="flex-1">
                 Custom
