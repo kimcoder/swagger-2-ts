@@ -231,7 +231,7 @@ ${responseInterface}`;
           </div>
         </DialogHeader>
 
-        <Tabs defaultValue="fetch" className="flex flex-1 flex-col overflow-hidden">
+        <Tabs defaultValue="interfaces" className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-shrink-0 border-b pb-4">
             <TabsList className="w-full">
               <TabsTrigger value="interfaces" className="flex-1">
