@@ -257,7 +257,7 @@ export async function getAPIList(): Promise<SwaggerApi[]> {
         operationId: operation.operationId || '',
         tags: operation.tags || [],
         parameters: enrichedParameters || [],
-        request: getRequestModel(operation.parameters, definitions),
+        request: getRequestModel({ parameters: operation.parameters, definitions }),
         response: enrichedResponses || {},
         requestBody: operation.requestBody,
       });
@@ -267,10 +267,13 @@ export async function getAPIList(): Promise<SwaggerApi[]> {
   return apiList;
 }
 
-function getRequestModel(
-  parameters?: SwaggerParameter[],
-  definitions: Record<string, any>,
-): SwaggerApiRequest {
+function getRequestModel({
+  parameters,
+  definitions,
+}: {
+  parameters?: SwaggerParameter[];
+  definitions: Record<string, any>;
+}): SwaggerApiRequest {
   const requestModel: SwaggerApiRequest = {};
 
   if (Array.isArray(parameters)) {
